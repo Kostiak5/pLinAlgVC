@@ -3,6 +3,7 @@ from dash import dcc, html, Input, Output, callback, State
 import plotly.graph_objects as go
 import numpy as np
 from pages.analytics_eval.evaluator import Evaluator
+from collections import defaultdict
 
 dash.register_page(__name__, name="Analytics")
 
@@ -24,56 +25,61 @@ tab_selected_style = {
     'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'
 }
 
-evaluator = []
+COLORS = ['blue', 'red', 'green', 'orange', 'purple', 'cyan']
+def get_color_by_index(i):
+    return COLORS[i % len(COLORS)]
 
-# --- 1. Graph Logic (Now accepts dynamic vectors) ---
-def create_2d_vectors(custom_title, vectors):
+evaluator = Evaluator()
+
+# --- 1. Graph Logic ---
+def create_2d_vectors():
     fig = go.Figure()
     
     # Define a color palette for dynamic vectors
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'cyan']
     
-    for i, v in enumerate(vectors):
-        color = colors[i % len(colors)]
-        # Add dummy trace for legend
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', line=dict(color=color, width=3), name=f'Vector {i+1}'))
-        # Draw Arrow
-        fig.add_annotation(
-            x=v[0], y=v[1], ax=0, ay=0, xref='x', yref='y', axref='x', ayref='y',
-            showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=3, arrowcolor=color
-        )
+    for var_i, (var_key, var_value) in enumerate(evaluator.vars.items()):
+        color = get_color_by_index(var_i)
+        for i, v in enumerate(var_value):
+            # Add dummy trace for legend
+            fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', line=dict(color=color, width=3), name=f'{var_key}: Row {i+1}'))
+            # Draw Arrow
+            fig.add_annotation(
+                x=v[0], y=v[1], ax=0, ay=0, xref='x', yref='y', axref='x', ayref='y',
+                showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=3, arrowcolor=color
+            )
 
     fig.update_layout(
-        title=custom_title,
+        title='Graph',
         xaxis=dict(title='X Axis', range=[-10, 10], zeroline=True, zerolinewidth=2, zerolinecolor='black'),
         yaxis=dict(title='Y Axis', range=[-10, 10], zeroline=True, zerolinewidth=2, zerolinecolor='black'),
         margin=dict(l=40, r=40, b=40, t=40), showlegend=True
     )
     return fig
 
-def create_3d_vectors(custom_title, vectors):
+def create_3d_vectors():
     fig = go.Figure()
     colors = ['blue', 'red', 'green', 'orange', 'purple', 'cyan']
     
-    for i, v in enumerate(vectors):
-        color = colors[i % len(colors)]
-        # Ensure 3D (pad with 0 if user only typed X and Y)
-        z_val = v[2] if len(v) > 2 else 0.0 
-        
-        # Line
-        fig.add_trace(go.Scatter3d(
-            x=[0, v[0]], y=[0, v[1]], z=[0, z_val],
-            mode='lines', name=f'Vector {i+1}', line=dict(color=color, width=6)
-        ))
-        # Arrowhead (Cone)
-        fig.add_trace(go.Cone(
-            x=[v[0]], y=[v[1]], z=[z_val], u=[v[0]], v=[v[1]], w=[z_val], 
-            sizemode="absolute", sizeref=0.8, anchor="tip", 
-            colorscale=[[0, color], [1, color]], showscale=False, showlegend=False, hoverinfo='skip'
-        ))
+    for var_i, (var_key, var_value) in enumerate(evaluator.vars.items()):
+        color = get_color_by_index(var_i)
+        for i, v in enumerate(var_value):
+            # Ensure 3D (pad with 0 if user only typed X and Y)
+            z_val = v[2] if len(v) > 2 else 0.0 
+            
+            # Line
+            fig.add_trace(go.Scatter3d(
+                x=[0, v[0]], y=[0, v[1]], z=[0, z_val],
+                mode='lines', name=f'{var_key}: Row {i+1}', line=dict(color=color, width=6)
+            ))
+            # Arrowhead (Cone)
+            fig.add_trace(go.Cone(
+                x=[v[0]], y=[v[1]], z=[z_val], u=[v[0]], v=[v[1]], w=[z_val], 
+                sizemode="absolute", sizeref=0.8, anchor="tip", 
+                colorscale=[[0, color], [1, color]], showscale=False, showlegend=False, hoverinfo='skip'
+            ))
         
     fig.update_layout(
-        title=custom_title,
+        title='Graph',
         scene=dict(
             xaxis=dict(range=[-10, 10], title='X'), 
             yaxis=dict(range=[-10, 10], title='Y'), 
@@ -103,17 +109,19 @@ def layout():
             
             # --- NEW: Smart Matrix Input ---
             html.Div([
-                html.Label("Data Matrix (Space = Col, Enter = Row):", style={'fontWeight': 'bold', 'color': '#333333', 'display': 'block', 'marginBottom': '5px', 'fontSize': '12px'}),
+                html.Label("Data Matrix Input:", style={'fontWeight': 'bold', 'color': '#333333', 'display': 'block', 'marginBottom': '5px', 'fontSize': '12px'}),
                 dcc.Textarea(
                     id='matrix-input-area',
                     value="", # Default starting vectors
-                    style={'width': '100%', 'height': '250px', 'padding': '10px', 'boxSizing': 'border-box', 'borderRadius': '4px', 'border': '1px solid #ccc', 'fontFamily': 'monospace', 'fontSize': '16px'}
+                    placeholder='Space = new col, Enter = new row',
+                    style={'width': '100%', 'height': '250px', 'padding': '10px', 'boxSizing': 'border-box', 'borderRadius': '4px', 'border': '1px solid #ccc', 'fontFamily': 'monospace', 'fontSize': '12px'}
                 ),
+                html.Label("Command Input:", style={'fontWeight': 'bold', 'color': '#333333', 'display': 'block', 'marginBottom': '5px', 'fontSize': '12px'}),
                 dcc.Input(
                     id='command-input',
                     type='text',
-                    placeholder='Type here and press Enter to clear...',
-                    style={'width': '100%', 'padding': '10px', 'marginTop': '10px', 'boxSizing': 'border-box'}
+                    placeholder='Type here, press Enter to evaluate',
+                    style={'width': '100%', 'padding': '2px', 'marginTop': '2px', 'boxSizing': 'border-box', 'fontFamily': 'monospace', 'fontSize': '12px'}
                 ),
                 # Visual feedback area showing parsed cells
                 html.Div(id='parsed-cells-feedback', style={'marginTop': '10px', 'padding': '10px', 'backgroundColor': '#fff', 'borderRadius': '4px', 'border': '1px solid #eee', 'minHeight': '50px'})
@@ -147,50 +155,64 @@ def layout():
     Input('command-input', 'n_submit')
 )
 def e_update_graph_and_matrix(selected_view, matrix_text, command_text, enter_pressed):
-    processed_title = command_text.strip().upper() if command_text else "UNTITLED VECTORS"
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
     # 1. Parse the text area into numerical vectors
-    vectors = []
-    informator_rows = [] # To build the visual cell feedback
+    vectors = None
     
     if triggered_id == 'command-input' and enter_pressed:
-        # default_fig = create_3d_vectors("CLEARED", [[1, 1, 1]]) if selected_view == '3D' else create_2d_vectors("CLEARED", [[1, 1, 1]])
+        # evaluating a command
+        command_params = command_text.split()
+        if command_params[0] in evaluator.COMMANDS:
+            if command_params[0] == evaluator.COMMANDS['add']:   
+                vectors = add_var(command_params[1], matrix_text)
         
-        if matrix_text:
-            lines = matrix_text.strip().split('\n')
-            vectors, informator_rows = create_graph_from_matrix(lines)
-        # Fallback if empty or invalid
-        if not vectors or len(vectors) == 0:
-            vectors = [] 
-            informator_rows = [html.Div("Awaiting valid numbers...", style={'color': '#999', 'fontStyle': 'italic'})]
+    # Fallback if empty or invalid
+    if not vectors or len(vectors) == 0:
+        vectors = [] 
 
-        # Generate Graph
-        if selected_view == '2D':
-            fig = create_2d_vectors(processed_title, vectors)
-        else:
-            fig = create_3d_vectors(processed_title, vectors)
-        return fig, informator_rows, "", ""
+    # Generate Graph
+    if selected_view == '2D':
+        fig = create_2d_vectors()
+    else:
+        fig = create_3d_vectors()
+    return fig, evaluator.informator, "", ""
     
-    return fig, informator_rows, 
+def add_var(new_var, matrix_text):
+    if matrix_text:
+        lines = matrix_text.strip().split('\n')
+        vectors = create_graph_from_matrix(lines)
+        
+
+        if new_var in evaluator.vars_order:
+            new_var_order = evaluator.vars_order[new_var]
+        else:
+            evaluator.vars_order[new_var] = evaluator.vars_n
+            new_var_order = evaluator.vars_n
+            evaluator.vars_n += 1
+        
+        str_matrix = '\n'.join(' '.join(map(str, row)) for row in vectors)
+
+        cell_style = {'padding': '4px 8px', 'marginRight': '5px', 'backgroundColor': '#e0e0e0', 'borderRadius': '4px', 'display': 'inline-block', 'whiteSpace': 'pre-wrap','fontFamily': 'monospace', 'color': f"{get_color_by_index(new_var_order)}"}
+
+        cells = [html.Div([
+            html.B(new_var), # bold variable name
+            "\n",            
+            str_matrix        
+        ], style=cell_style)]
+    
+        evaluator.informator.append(html.Div(cells, style={'marginBottom': '5px'}))
+        evaluator.vars[new_var] = vectors
+    return vectors
 
 def create_graph_from_matrix(lines):
     vectors = []
-    informator_rows = []
     for line in lines:
         try:
-            # Split by space and convert to float
-            line_params = line.split()
-            # if line_params[0] in evaluator.get_commands():
-            #     new_line = evaluator.parse_line_input(line_params)
-            # else:
             vec = [float(val) for val in line.split() if val.strip()]
             if len(vec) >= 2: # Need at least X and Y
                 vectors.append(vec[:3]) # Cap at 3 dimensions (Z)
-                # Create the visual HTML cells for feedback
-                cells = [html.Span(str(val), style={'padding': '4px 8px', 'marginRight': '5px', 'backgroundColor': '#e0e0e0', 'borderRadius': '4px', 'display': 'inline-block'}) for val in vec[:3]]
-                informator_rows.append(html.Div(cells, style={'marginBottom': '5px'}))
         except ValueError:
             pass # Ignore lines with incomplete typing
-    return vectors, informator_rows
+    return vectors
 
